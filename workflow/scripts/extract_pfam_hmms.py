@@ -18,6 +18,7 @@ def find_full_accession(base_acc, hmm_db):
                                text=True)
         
         # Extract the full accession with version number
+        print(result.stdout)
         match = re.search(r'ACC\s+(\S+)', result.stdout)
         if match:
             return match.group(1)
