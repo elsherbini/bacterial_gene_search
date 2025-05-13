@@ -10,7 +10,7 @@ output:
 
 # Database configurations
 databases:
-  pfam_db_path: "resources/Pfam-A.hmm"
+  pfam_db_path: "resources/pfam_db"
   pfam_download_url: "http://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz"
 
 # Parameters

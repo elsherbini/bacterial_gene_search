@@ -22,7 +22,7 @@ with open(temp_file, 'w') as f:
         f.write(f"{acc}\n")
 
 # Use hmmfetch to extract HMMs
-shell(f"hmmfetch -f {pfam_db} {temp_file} > {output_hmm}")
+shell(f"hmmfetch -f {pfam_db}/Pfam-A.hmm {temp_file} > {output_hmm}")
 
 # Clean up temp file
 os.remove(temp_file)

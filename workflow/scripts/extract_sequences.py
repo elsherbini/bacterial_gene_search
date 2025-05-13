@@ -9,11 +9,12 @@ import re
 # Get variables from Snakemake
 hmmsearch_output = snakemake.input.hmmsearch
 protein_fasta = snakemake.input.proteins
+gbff_file = snakemake.input.gbff
 pfam_list_file = snakemake.input.pfam_list
 output_fasta = snakemake.output.fasta
-output_nucleotide = snakemake.output.get("nucleotide", None)
+output_nucleotide = snakemake.output.nucleotide
 gene_name = snakemake.wildcards.gene
-sample_id = snakemake.wildcards.sample
+genome_id = snakemake.wildcards.genome_id
 evalue_cutoff = float(snakemake.params.evalue_cutoff)
 
 # Read Pfam descriptions
@@ -47,10 +48,9 @@ with open(hmmsearch_output, 'r') as f:
 # If no hits found, create empty output files
 if not hits:
     with open(output_fasta, 'w') as f:
-        f.write(f"# No hits found for {gene_name} ({gene_description}) in {sample_id} with E-value <= {evalue_cutoff}\n")
-    if output_nucleotide:
-        with open(output_nucleotide, 'w') as f:
-            f.write(f"# No hits found for {gene_name} ({gene_description}) in {sample_id} with E-value <= {evalue_cutoff}\n")
+        f.write(f"# No hits found for {gene_name} ({gene_description}) in {genome_id} with E-value <= {evalue_cutoff}\n")
+    with open(output_nucleotide, 'w') as f:
+        f.write(f"# No hits found for {gene_name} ({gene_description}) in {genome_id} with E-value <= {evalue_cutoff}\n")
     sys.exit(0)
 
 # Load protein sequences
@@ -64,17 +64,33 @@ with open(output_fasta, 'w') as f:
             seq_record.description = f"{seq_record.description} | {gene_name} ({gene_description}) | E-value={evalue:.2e}"
             SeqIO.write(seq_record, f, "fasta")
 
-# Extract nucleotide sequences if requested
-if output_nucleotide:
-    # We need to map from protein ID to nucleotide ID
-    # This typically requires parsing the GBK file, but for this script we'll assume
-    # the protein IDs can be mapped to nucleotide features in a GBK file
-    # (In a real implementation, you would need to add this mapping logic)
-    with open(output_nucleotide, 'w') as f:
-        f.write(f"# Nucleotide sequences for {gene_name} ({gene_description}) in {sample_id}\n")
-        f.write(f"# To properly implement this, we need to map protein IDs to nucleotide features\n")
-        for hit_id, evalue in hits:
-            f.write(f">{hit_id} | {gene_name} ({gene_description}) | E-value={evalue:.2e}\n")
-            f.write("NUCLEOTIDE_SEQUENCE_PLACEHOLDER\n")
+# Build a mapping from protein IDs to nucleotide sequences
+protein_to_nucleotide = {}
+for record in SeqIO.parse(gbff_file, "genbank"):
+    for feature in record.features:
+        if feature.type == "CDS" and "protein_id" in feature.qualifiers:
+            protein_id = feature.qualifiers["protein_id"][0]
+            if protein_id in [hit_id for hit_id, _ in hits]:
+                if feature.location:
+                    start = feature.location.start
+                    end = feature.location.end
+                    strand = feature.location.strand
+                    nuc_seq = feature.extract(record.seq)
+                    protein_to_nucleotide[protein_id] = {
+                        "seq": str(nuc_seq),
+                        "location": f"{start}..{end}",
+                        "strand": "+" if strand == 1 else "-",
+                        "contig": record.id
+                    }
 
-print(f"Extracted {len(hits)} sequences for {gene_name} ({gene_description}) in {sample_id}", file=sys.stderr) 
+# Extract nucleotide sequences
+with open(output_nucleotide, 'w') as f:
+    for hit_id, evalue in hits:
+        if hit_id in protein_to_nucleotide:
+            nuc_info = protein_to_nucleotide[hit_id]
+            f.write(f">{hit_id} | {gene_name} ({gene_description}) | E-value={evalue:.2e} | {nuc_info['contig']}:{nuc_info['location']}({nuc_info['strand']})\n")
+            f.write(f"{nuc_info['seq']}\n")
+        else:
+            f.write(f"# Could not find nucleotide sequence for protein {hit_id}\n")
+
+print(f"Extracted {len(hits)} sequences for {gene_name} ({gene_description}) in {genome_id}", file=sys.stderr) 

@@ -19,15 +19,15 @@ The workflow performs the following steps:
 ### Genome List
 
 The input genomes are specified in a CSV file with the following columns:
-- `sample`: Unique sample identifier
-- `genome_path`: Path to the genome file (.fna assembly file or .gbff annotated file)
-- `genome_type`: Type of the genome file (`fna` or `gbff`)
+- `genome_id`: Unique genome identifier
+- `genome_path`: Path to the genome file (.fna assembly file) or directory containing Bakta results
+- `genome_type`: Type of the genome file (`fna` or `bakta_dir`)
 
 Example:
 ```
-sample,genome_path,genome_type
+genome_id,genome_path,genome_type
 sample1,resources/genomes/sample1.fna,fna
-sample2,resources/genomes/sample2.gbff,gbff
+sample2,resources/bakta_results/sample2,bakta_dir
 ```
 
 ### Gene List

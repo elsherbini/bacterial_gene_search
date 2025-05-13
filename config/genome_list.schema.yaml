@@ -7,11 +7,11 @@ properties:
     description: Unique genome identifier
   genome_path:
     type: string
-    description: Path to the genome file (.fna assembly file or .gbff annotated file)
+    description: Path to the genome file (.fna assembly file or directory with Bakta results)
   genome_type:
     type: string
-    description: Type of the genome file (fna or gbff)
-    enum: ["fna", "gbff"]
+    description: Type of the genome file (fna or bakta_dir)
+    enum: ["fna", "bakta_dir"]
 required:
   - genome_id
   - genome_path

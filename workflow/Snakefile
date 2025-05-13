@@ -27,7 +27,7 @@ def get_genome_path(wildcards):
             return record['genome_path']
     raise ValueError(f"Genome {wildcards.genome_id} not found in genome list")
 
-# Function to get the genome type for a sample (fna or gbff)
+# Function to get the genome type for a sample (fna or bakta_dir)
 def get_genome_type(wildcards):
     for record in genomes.to_dict(orient="records"):
         if record['genome_id'] == wildcards.genome_id:
@@ -61,7 +61,7 @@ rule all:
 
 rule setup_pfam_db:
     output:
-        touch(config["databases"]["pfam_db_path"] + ".snakemake_setup_complete")
+        touch(config["databases"]["pfam_db_path"] + "/.snakemake_setup_complete")
     params:
         download_url = config["databases"]["pfam_download_url"]
     conda:
@@ -95,7 +95,7 @@ rule setup_bakta_db:
 rule extract_pfams:
     input:
         pfam_list = config["input"]["pfam_list"],
-        db_setup = config["databases"]["pfam_db_path"] + ".snakemake_setup_complete"
+        db_setup = config["databases"]["pfam_db_path"] + "/.snakemake_setup_complete"
     output:
         hmm = "temp/hmm/target_genes.hmm"
     conda:
@@ -123,20 +123,49 @@ rule run_bakta:
     params:
         db_path = config["params"]["bakta"]["db_path"],
         prefix = "{genome_id}",
-        outdir = "temp/bakta/{genome_id}"
-    shell:
+        outdir = "temp/bakta/{genome_id}",
+        genome_type = lambda wildcards: get_genome_type(wildcards)
+    script:
         """
-        # Check if genome is already annotated (gbff)
-        if [[ "{input.genome}" == *.gbff ]]; then
-            # Just copy the gbff file
-            cp {input.genome} {output.gbff}
+        import os
+        import shutil
+        import subprocess
+        import glob
+
+        # Create output directory if it doesn't exist
+        os.makedirs(params.outdir, exist_ok=True)
+
+        # Handle different genome types
+        if params.genome_type == 'bakta_dir':
+            # For already Bakta-annotated genomes, copy or link the necessary files
+            input_dir = input.genome
             
-            # Extract proteins from gbff
-            bakta_proteins {output.gbff} > {output.faa}
-        else
-            # Run bakta for annotation
-            bakta --db {params.db_path} --output {params.outdir} --prefix {params.prefix} --keep-contig-headers {input.genome} --threads {threads}
-        fi
+            # Find and copy the .gbff file
+            gbff_files = glob.glob(os.path.join(input_dir, "*.gbff"))
+            if gbff_files:
+                shutil.copy(gbff_files[0], output.gbff)
+            else:
+                raise ValueError(f"No .gbff file found in Bakta directory: {input_dir}")
+            
+            # Find and copy the .faa file
+            faa_files = glob.glob(os.path.join(input_dir, "*.faa"))
+            if faa_files:
+                shutil.copy(faa_files[0], output.faa)
+            else:
+                raise ValueError(f"No .faa file found in Bakta directory: {input_dir}")
+        else:
+            # For unannotated genomes (fna), run bakta for annotation
+            cmd = [
+                "bakta",
+                "--db", params.db_path,
+                "--output", params.outdir,
+                "--prefix", params.prefix,
+                "--keep-contig-headers",
+                input.genome,
+                "--threads", str(threads)
+            ]
+            
+            subprocess.run(cmd, check=True)
         """
 
 rule run_hmmsearch:
