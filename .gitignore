@@ -1,0 +1,10 @@
+# Snakemake working directories
+.snakemake/
+.snakemake_*
+
+# Results and temp dirs
+/results/
+/temp/
+
+.DS_Store
+

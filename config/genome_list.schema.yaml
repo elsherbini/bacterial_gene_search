@@ -1,0 +1,18 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+description: Schema for genome list CSV file
+type: object
+properties:
+  genome_id:
+    type: string
+    description: Unique genome identifier
+  genome_path:
+    type: string
+    description: Path to the genome file (.fna assembly file or .gbff annotated file)
+  genome_type:
+    type: string
+    description: Type of the genome file (fna or gbff)
+    enum: ["fna", "gbff"]
+required:
+  - genome_id
+  - genome_path
+  - genome_type 

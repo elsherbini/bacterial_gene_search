@@ -1,0 +1,324 @@
+import pandas as pd
+import yaml
+import os
+from snakemake.utils import validate
+import json
+
+configfile: "config/config.yaml"
+
+# Read genome list
+genomes = pd.read_csv(config["input"]["genome_sheet"], index_col=False)
+
+# Validate samplesheet against schema
+validate(genomes, "../config/genome_list.schema.yaml")
+
+# Read list of Pfam accessions to search for
+pfam_df = pd.read_csv(config["input"]["pfam_list"], index_col=False)
+validate(pfam_df, "../config/pfam_list.schema.yaml")
+GENES = pfam_df['pfam_accession'].tolist()
+
+# Get list of all genomes
+ALL_GENOMES = genomes['genome_id'].tolist()
+
+# Function to get the genome path for a sample
+def get_genome_path(wildcards):
+    for record in genomes.to_dict(orient="records"):
+        if record['genome_id'] == wildcards.genome_id:
+            return record['genome_path']
+    raise ValueError(f"Genome {wildcards.genome_id} not found in genome list")
+
+# Function to get the genome type for a sample (fna or gbff)
+def get_genome_type(wildcards):
+    for record in genomes.to_dict(orient="records"):
+        if record['genome_id'] == wildcards.genome_id:
+            return record['genome_type']
+    raise ValueError(f"Genome {wildcards.genome_id} not found in genome list")
+
+# Generate file paths for rule all
+def get_final_outputs():
+    outputs = []
+    
+    # Gene FASTA files for each genome and gene
+    for genome_id in ALL_GENOMES:
+        for gene in GENES:
+            outputs.append(f"{config['output']['results_dir']}/sequences/{genome_id}/{gene}.faa")
+    
+    # For genes with more than one genome, also generate alignments and trees
+    if len(ALL_GENOMES) > 1:
+        for gene in GENES:
+            outputs.append(f"{config['output']['results_dir']}/alignments/{gene}.aln")
+            outputs.append(f"{config['output']['results_dir']}/trees/{gene}.aa.tree")
+            outputs.append(f"{config['output']['results_dir']}/trees/{gene}.nuc.tree")
+    
+    # Add report
+    outputs.append(f"{config['output']['results_dir']}/report/summary.html")
+    
+    return outputs
+
+rule all:
+    input:
+        get_final_outputs()
+
+rule setup_pfam_db:
+    output:
+        touch(config["databases"]["pfam_db_path"] + ".snakemake_setup_complete")
+    params:
+        download_url = config["databases"]["pfam_download_url"]
+    conda:
+        "envs/hmmer.yaml"
+    threads:
+        config["resources"]["db_setup"]["threads"]
+    resources:
+        mem_mb = config["resources"]["db_setup"]["mem_mb"],
+        runtime = config["resources"]["db_setup"]["runtime"],
+        partition = config["resources"]["db_setup"]["partition"]
+    script:
+        "scripts/setup_pfam_db.py"
+
+rule setup_bakta_db:
+    output:
+        touch(config["params"]["bakta"]["db_path"] + "/.snakemake_setup_complete")
+    params:
+        db_path = config["params"]["bakta"]["db_path"],
+        download_db = config["params"]["bakta"]["download_db"]
+    conda:
+        "envs/bakta.yaml"
+    threads:
+        config["resources"]["db_setup"]["threads"]
+    resources:
+        mem_mb = config["resources"]["db_setup"]["mem_mb"],
+        runtime = config["resources"]["db_setup"]["runtime"],
+        partition = config["resources"]["db_setup"]["partition"]
+    script:
+        "scripts/setup_bakta_db.py"
+
+rule extract_pfams:
+    input:
+        pfam_list = config["input"]["pfam_list"],
+        db_setup = config["databases"]["pfam_db_path"] + ".snakemake_setup_complete"
+    output:
+        hmm = "temp/hmm/target_genes.hmm"
+    conda:
+        "envs/hmmer.yaml"
+    params:
+        pfam_db = config["databases"]["pfam_db_path"]
+    script:
+        "scripts/extract_pfam_hmms.py"
+
+rule run_bakta:
+    input:
+        genome = get_genome_path,
+        db_setup = config["params"]["bakta"]["db_path"] + "/.snakemake_setup_complete"
+    output:
+        gbff = "temp/bakta/{genome_id}/{genome_id}.gbff",
+        faa = "temp/bakta/{genome_id}/{genome_id}.faa"
+    conda:
+        "envs/bakta.yaml"
+    threads:
+        config["resources"]["bakta"]["threads"]
+    resources:
+        mem_mb = config["resources"]["bakta"]["mem_mb"],
+        runtime = config["resources"]["bakta"]["runtime"],
+        partition = config["resources"]["bakta"]["partition"]
+    params:
+        db_path = config["params"]["bakta"]["db_path"],
+        prefix = "{genome_id}",
+        outdir = "temp/bakta/{genome_id}"
+    shell:
+        """
+        # Check if genome is already annotated (gbff)
+        if [[ "{input.genome}" == *.gbff ]]; then
+            # Just copy the gbff file
+            cp {input.genome} {output.gbff}
+            
+            # Extract proteins from gbff
+            bakta_proteins {output.gbff} > {output.faa}
+        else
+            # Run bakta for annotation
+            bakta --db {params.db_path} --output {params.outdir} --prefix {params.prefix} --keep-contig-headers {input.genome} --threads {threads}
+        fi
+        """
+
+rule run_hmmsearch:
+    input:
+        hmm = "temp/hmm/target_genes.hmm",
+        proteins = "temp/bakta/{genome_id}/{genome_id}.faa"
+    output:
+        "temp/hmmsearch/{genome_id}/{gene}.txt"
+    conda:
+        "envs/hmmer.yaml"
+    threads:
+        config["resources"]["hmmer"]["threads"]
+    resources:
+        mem_mb = config["resources"]["hmmer"]["mem_mb"],
+        runtime = config["resources"]["hmmer"]["runtime"],
+        partition = config["resources"]["hmmer"]["partition"]
+    params:
+        evalue = config["params"]["hmmer"]["evalue_cutoff"]
+    shell:
+        """
+        # Extract the specific gene HMM
+        hmmfetch {input.hmm} {wildcards.gene} > temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm
+        
+        # Run hmmsearch
+        hmmsearch -E {params.evalue} --cpu {threads} temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm {input.proteins} > {output}
+        """
+
+rule extract_sequences:
+    input:
+        hmmsearch = "temp/hmmsearch/{genome_id}/{gene}.txt",
+        proteins = "temp/bakta/{genome_id}/{genome_id}.faa",
+        gbff = "temp/bakta/{genome_id}/{genome_id}.gbff",
+        pfam_list = config["input"]["pfam_list"]
+    output:
+        fasta = f"{config['output']['results_dir']}/sequences/{{genome_id}}/{{gene}}.faa",
+        nucleotide = f"{config['output']['results_dir']}/sequences/{{genome_id}}/{{gene}}.fna"
+    conda:
+        "envs/hmmer.yaml"
+    params:
+        evalue_cutoff = config["params"]["hmmer"]["evalue_cutoff"]
+    script:
+        "scripts/extract_sequences.py"
+
+rule combine_gene_sequences:
+    input:
+        expand(f"{config['output']['results_dir']}/sequences/{{genome_id}}/{{gene}}.faa", 
+               genome_id=ALL_GENOMES, gene="{gene}")
+    output:
+        f"{config['output']['results_dir']}/combined/{{gene}}.faa"
+    conda:
+        "envs/hmmer.yaml"
+    shell:
+        """
+        cat {input} > {output}
+        """
+
+rule align_sequences:
+    input:
+        f"{config['output']['results_dir']}/combined/{{gene}}.faa"
+    output:
+        f"{config['output']['results_dir']}/alignments/{{gene}}.aln"
+    conda:
+        "envs/alignment.yaml"
+    threads:
+        config["resources"]["mafft"]["threads"]
+    resources:
+        mem_mb = config["resources"]["mafft"]["mem_mb"],
+        runtime = config["resources"]["mafft"]["runtime"],
+        partition = config["resources"]["mafft"]["partition"]
+    shell:
+        """
+        # Check if file has content
+        if [ -s {input} ]; then
+            mafft --thread {threads} --auto {input} > {output}
+        else
+            # Create empty alignment file with header
+            echo "# No sequences found for {wildcards.gene} in any sample" > {output}
+        fi
+        """
+
+rule build_aa_tree:
+    input:
+        f"{config['output']['results_dir']}/alignments/{{gene}}.aln"
+    output:
+        f"{config['output']['results_dir']}/trees/{{gene}}.aa.tree"
+    conda:
+        "envs/alignment.yaml"
+    threads:
+        config["resources"]["fasttree"]["threads"]
+    resources:
+        mem_mb = config["resources"]["fasttree"]["mem_mb"],
+        runtime = config["resources"]["fasttree"]["runtime"],
+        partition = config["resources"]["fasttree"]["partition"]
+    shell:
+        """
+        # Check if file has content (more than just a header line)
+        if [ `grep -v "^#" {input} | wc -l` -gt 2 ]; then
+            FastTree {input} > {output}
+        else
+            # Create empty tree file with header
+            echo "# Not enough sequences to build a tree for {wildcards.gene}" > {output}
+        fi
+        """
+
+rule combine_nucleotide_sequences:
+    input:
+        expand(f"{config['output']['results_dir']}/sequences/{{genome_id}}/{{gene}}.fna", 
+               genome_id=ALL_GENOMES, gene="{gene}")
+    output:
+        f"{config['output']['results_dir']}/combined/{{gene}}.fna"
+    conda:
+        "envs/hmmer.yaml"
+    shell:
+        """
+        cat {input} > {output}
+        """
+
+rule build_nuc_tree:
+    input:
+        f"{config['output']['results_dir']}/combined/{{gene}}.fna"
+    output:
+        f"{config['output']['results_dir']}/trees/{{gene}}.nuc.tree"
+    conda:
+        "envs/alignment.yaml"
+    threads:
+        config["resources"]["fasttree"]["threads"]
+    resources:
+        mem_mb = config["resources"]["fasttree"]["mem_mb"],
+        runtime = config["resources"]["fasttree"]["runtime"],
+        partition = config["resources"]["fasttree"]["partition"]
+    shell:
+        """
+        # Check if file has more than just header lines
+        if [ `grep -v "^#" {input} | wc -l` -gt 2 ]; then
+            # Align nucleotide sequences
+            mafft --thread {threads} --auto {input} > temp.aln
+            
+            # Build tree
+            FastTree -nt temp.aln > {output}
+            
+            # Clean up
+            rm temp.aln
+        else
+            # Create empty tree file with header
+            echo "# Not enough sequences to build a tree for {wildcards.gene}" > {output}
+        fi
+        """
+
+rule generate_report_data:
+    input:
+        pfam_list = config["input"]["pfam_list"],
+        # Make sure all sequences and trees are generated
+        sequences = expand(f"{config['output']['results_dir']}/sequences/{{genome_id}}/{{gene}}.faa", 
+                          genome_id=ALL_GENOMES, gene=GENES),
+        trees = expand(f"{config['output']['results_dir']}/trees/{{gene}}.aa.tree", 
+                      gene=GENES) if len(ALL_GENOMES) > 1 else []
+    output:
+        json = f"{config['output']['results_dir']}/report/report_data.json"
+    params:
+        results_dir = config["output"]["results_dir"],
+        genomes = ALL_GENOMES
+    conda:
+        "envs/hmmer.yaml"
+    script:
+        "scripts/generate_report.py"
+
+rule generate_report:
+    input:
+        report_data = f"{config['output']['results_dir']}/report/report_data.json",
+        # Include tree files if available
+        trees = expand(f"{config['output']['results_dir']}/trees/{{gene}}.aa.tree", 
+                      gene=GENES) if len(ALL_GENOMES) > 1 else []
+    output:
+        report = report(f"{config['output']['results_dir']}/report/summary.html",
+                       caption="report/summary.rst",
+                       category="Summary")
+    params:
+        # Load data from the JSON file
+        pfams = lambda wildcards, input: json.load(open(input.report_data))["pfams"],
+        samples = lambda wildcards, input: json.load(open(input.report_data))["samples"],
+        sample_count = lambda wildcards, input: json.load(open(input.report_data))["sample_count"],
+        genes = lambda wildcards, input: json.load(open(input.report_data))["genes"]
+    run:
+        # This rule simply triggers the report generation, which is handled by Snakemake
+        pass 

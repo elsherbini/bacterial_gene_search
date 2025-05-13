@@ -1,0 +1,10 @@
+name: hmmer
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - hmmer
+  - python
+  - pandas
+  - biopython 

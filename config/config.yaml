@@ -1,0 +1,50 @@
+# Input/Output paths
+input:
+  genome_sheet: "resources/test_data/test_genomes.csv"
+  pfam_list: "resources/test_data/query_pfams.csv"
+
+# Output file paths
+output:
+  prefix: "bacterial_gene_search"
+  results_dir: "results"
+
+# Database configurations
+databases:
+  pfam_db_path: "resources/Pfam-A.hmm"
+  pfam_download_url: "http://ftp.ebi.ac.uk/pub/databases/Pfam/current_release/Pfam-A.hmm.gz"
+
+# Parameters
+params:
+  hmmer:
+    evalue_cutoff: 1e-30
+  bakta:
+    db_path: "resources/bakta_db"
+    download_db: true
+
+# Resource configurations
+resources:
+  bakta:
+    threads: 8
+    mem_mb: 16000
+    runtime: "6h"
+    partition: "short"
+  hmmer:
+    threads: 4
+    mem_mb: 8000
+    runtime: "2h"
+    partition: "short"
+  mafft:
+    threads: 4
+    mem_mb: 8000
+    runtime: "2h"
+    partition: "short"
+  fasttree:
+    threads: 4
+    mem_mb: 8000
+    runtime: "2h"
+    partition: "short"
+  db_setup:
+    threads: 4
+    mem_mb: 16000
+    runtime: "4h"
+    partition: "short" 

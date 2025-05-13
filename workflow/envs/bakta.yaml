@@ -1,0 +1,12 @@
+name: bakta
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - bakta
+  - trnascan-se
+  - aragorn
+  - infernal
+  - hmmer
+  - python 

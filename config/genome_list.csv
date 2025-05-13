@@ -1,0 +1,3 @@
+sample,genome_path,genome_type
+sample1,resources/genomes/sample1.fna,fna
+sample2,resources/genomes/sample2.gbff,gbff 

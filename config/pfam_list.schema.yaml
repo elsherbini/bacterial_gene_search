@@ -1,0 +1,13 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+description: Schema for Pfam list CSV file
+type: object
+properties:
+  pfam_accession:
+    type: string
+    description: Pfam accession ID (e.g., PF00005)
+    pattern: "^PF\\d{5}$"
+  description:
+    type: string
+    description: Description of the Pfam family
+required:
+  - pfam_accession 
