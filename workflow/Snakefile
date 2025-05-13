@@ -186,11 +186,31 @@ rule run_hmmsearch:
         evalue = config["params"]["hmmer"]["evalue_cutoff"]
     shell:
         """
-        # Extract the specific gene HMM
-        hmmfetch {input.hmm} {wildcards.gene} > temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm
+        # Create directory if it doesn't exist
+        mkdir -p temp/hmmsearch/{wildcards.genome_id}
         
-        # Run hmmsearch
-        hmmsearch -E {params.evalue} --cpu {threads} temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm {input.proteins} > {output}
+        # First try with the exact accession
+        if hmmfetch {input.hmm} {wildcards.gene} > temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm 2>/dev/null; then
+            echo "Found exact match for {wildcards.gene}"
+        else
+            # Try to find versioned accession
+            ACC=$(grep -m 1 "^ACC {wildcards.gene}\\." {input.hmm} | awk '{{print $2}}')
+            if [ ! -z "$ACC" ]; then
+                echo "Found versioned accession: $ACC for {wildcards.gene}" >&2
+                hmmfetch {input.hmm} $ACC > temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm
+            else
+                echo "Accession {wildcards.gene} not found in database" >&2
+                touch temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm
+            fi
+        fi
+        
+        # Run hmmsearch if the HMM file has content
+        if [ -s temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm ]; then
+            hmmsearch -E {params.evalue} --cpu {threads} temp/hmmsearch/{wildcards.genome_id}/{wildcards.gene}.hmm {input.proteins} > {output}
+        else
+            # Create empty output file
+            echo "# No HMM found for {wildcards.gene}" > {output}
+        fi
         """
 
 rule extract_sequences:
@@ -350,4 +370,12 @@ rule generate_report:
         genes = lambda wildcards, input: json.load(open(input.report_data))["genes"]
     run:
         # This rule simply triggers the report generation, which is handled by Snakemake
-        pass 
+        pass
+
+rule extract_hmm:
+    input:
+        hmm_db = config["databases"]["pfam_db_path"] + "/Pfam-A.hmm"
+    output:
+        "results/{accession}.hmm"
+    shell:
+        "python workflow/scripts/smart_hmmfetch.py {input.hmm_db} {wildcards.accession} -o {output}" 
