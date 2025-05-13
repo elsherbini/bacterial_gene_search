@@ -9,6 +9,7 @@ import pandas as pd
 from snakemake.shell import shell
 
 def find_full_accession(base_acc, hmm_db):
+    print(f"searching for full accession for {base_acc} in {hmm_db}", file=sys.stderr)
     """Find the full accession with version number in the HMM database"""
     try:
         # Use grep to find the accession line
@@ -36,6 +37,7 @@ def smart_hmmfetch(hmm_db, accession, output_file):
                       check=True)
         return True
     except subprocess.CalledProcessError:
+
         # If exact match fails, try to find the versioned accession
         full_acc = find_full_accession(accession, hmm_db)
         
