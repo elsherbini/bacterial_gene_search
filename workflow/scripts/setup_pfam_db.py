@@ -13,7 +13,7 @@ pfam_download_url = snakemake.params.download_url
 os.makedirs(os.path.dirname(pfam_db_path), exist_ok=True)
 
 # Download Pfam database if it doesn't exist
-if not os.path.exists(pfam_db_path):
+if not os.path.exists(os.path.join(pfam_db_path, "Pfam-A.hmm")):
     print(f"Downloading Pfam database from {pfam_download_url}", file=sys.stderr)
     
     # Download gzipped file
