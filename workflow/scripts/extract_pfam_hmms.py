@@ -13,7 +13,7 @@ def find_full_accession(base_acc, hmm_db):
     """Find the full accession with version number in the HMM database"""
     try:
         # Use grep to find the accession line
-        cmd = f"grep -m 1 '^{base_acc}' {hmm_db}"
+        cmd = f"grep -m 1 '{base_acc}' {hmm_db}"
         result = subprocess.run(cmd, shell=True, check=True, 
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                                text=True)
