@@ -17,7 +17,7 @@ if not os.path.exists(os.path.join(pfam_db_path, "Pfam-A.hmm")):
     print(f"Downloading Pfam database from {pfam_download_url}", file=sys.stderr)
     
     # Download gzipped file
-    shell(f"wget -O {pfam_download_url}")
+    shell(f"wget {pfam_download_url}")
 
     shell(f"mv Pfam-A.hmm.gz {pfam_db_path}")
 
