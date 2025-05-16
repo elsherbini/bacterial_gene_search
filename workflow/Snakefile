@@ -126,47 +126,7 @@ rule run_bakta:
         outdir = "temp/bakta/{genome_id}",
         genome_type = lambda wildcards: get_genome_type(wildcards)
     script:
-        """
-        import os
-        import shutil
-        import subprocess
-        import glob
-
-        # Create output directory if it doesn't exist
-        os.makedirs(params.outdir, exist_ok=True)
-
-        # Handle different genome types
-        if params.genome_type == 'bakta_dir':
-            # For already Bakta-annotated genomes, copy or link the necessary files
-            input_dir = input.genome
-            
-            # Find and copy the .gbff file
-            gbff_files = glob.glob(os.path.join(input_dir, "*.gbff"))
-            if gbff_files:
-                shutil.copy(gbff_files[0], output.gbff)
-            else:
-                raise ValueError(f"No .gbff file found in Bakta directory: {input_dir}")
-            
-            # Find and copy the .faa file
-            faa_files = glob.glob(os.path.join(input_dir, "*.faa"))
-            if faa_files:
-                shutil.copy(faa_files[0], output.faa)
-            else:
-                raise ValueError(f"No .faa file found in Bakta directory: {input_dir}")
-        else:
-            # For unannotated genomes (fna), run bakta for annotation
-            cmd = [
-                "bakta",
-                "--db", params.db_path,
-                "--output", params.outdir,
-                "--prefix", params.prefix,
-                "--keep-contig-headers",
-                input.genome,
-                "--threads", str(threads)
-            ]
-            
-            subprocess.run(cmd, check=True)
-        """
+        "scripts/run_bakta.py"
 
 rule run_hmmsearch:
     input:
